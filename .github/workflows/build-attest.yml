@@ -59,6 +59,7 @@ jobs:
               uses: actions/attest@v1
               with:
                 subject-path: vulnerable-app-${{ github.sha }}.tar.gz
+                predicate-type: "https://slsa.dev/spec/v1.1/provenance"
                 predicate: |
                     {
                         "notice": "INTENTIONALLY VULNERABLE SOFTWARE",
