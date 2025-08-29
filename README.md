@@ -2,8 +2,7 @@
 
 ⚠️ **WARNING: This project contains intentional security vulnerabilities!**
 
-This project is designed for educational purposes, security testing, and demonstrating common Python security vulnerabilities. **DO NOT USE IN PRODUCTION!**
-
+This project is designed for educational purposes.
 ## Project Structure
 
 ```
