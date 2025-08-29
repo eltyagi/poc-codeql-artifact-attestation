@@ -71,7 +71,7 @@ jobs:
       if: always()
       with:
         name: codeql-sarif-results
-        path: codeql-results/*.sarif
+        path: codeql-results/codeql-${{github.sha}}.sarif
         retention-days: 30
 
     - name: Create CodeQL attestation
