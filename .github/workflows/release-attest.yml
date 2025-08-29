@@ -109,7 +109,6 @@ jobs:
                 "pr_info": ${{ steps.pr_info.outputs.pr_data }},
                 "commit": {
                     "sha": "${{ github.sha }}",
-                    "message": "${{ github.event.head_commit.message }}",
                     "author": "${{ github.event.head_commit.author.name }}",
                     "timestamp": "${{ github.event.head_commit.timestamp }}"
                 }
