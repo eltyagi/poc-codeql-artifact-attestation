@@ -1,0 +1,9 @@
+# Intentionally vulnerable dependencies for security testing
+Flask==1.0.2  # Old version with known vulnerabilities
+Jinja2==2.10  # Old version with known vulnerabilities  
+requests==2.18.4  # Old version with known vulnerabilities
+PyYAML==3.13  # Known vulnerability CVE-2017-18342
+SQLAlchemy==1.2.0  # Older version
+cryptography==2.3  # Older version with potential vulnerabilities
+Pillow==5.0.0  # Old version with known vulnerabilities
+lxml==4.2.0  # Old version with known vulnerabilities
