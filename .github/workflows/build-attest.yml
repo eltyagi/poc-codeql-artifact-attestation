@@ -48,17 +48,17 @@ jobs:
               uses: actions/upload-artifact@v4
               with:
                 name: vulnerable-app-source
-                path: vulnerabile-app-${{ github.sha }}.tar.gz
+                path: artifacts/vulnerabile-app-${{ github.sha }}.tar.gz
             
             - name: Attest build provenance
               uses: actions/attest-build-provenance@v1
               with: 
-                subject-path: vulnerabile-app-${{ github.sha }}.tar.gz
+                subject-path: artifacts/vulnerabile-app-${{ github.sha }}.tar.gz
             
             - name: Create security notice attestation
               uses: actions/attest@v1
               with:
-                subject-path: vulnerabile-app-${{ github.sha }}.tar.gz
+                subject-path: artifacts/vulnerabile-app-${{ github.sha }}.tar.gz
                 predicate: |
                     {
                         "notice": "INTENTIONALLY VULNERABLE SOFTWARE",
