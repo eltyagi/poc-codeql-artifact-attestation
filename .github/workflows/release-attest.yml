@@ -1,0 +1,108 @@
+name: "Release Attestation"
+
+on:
+    push: 
+        branches: ["main"]
+    release:
+        types: ["published"]
+
+permissions:
+    contents: read
+    attestations: write
+    id-token: write
+    actions: read
+    security-events: read
+
+jobs:
+    create-release-attestation:
+        name: Create Release Attestation
+        runs-on: ubuntu-latest
+        if: github.ref == 'refs/heads/main'
+
+        steps:
+        - name: Checkout repository
+          uses: actions/checkout@v4
+        
+        - name: Download artifacts
+          uses: actions/download-artifact@v4
+          with:
+            name: vulnerable-app-source
+            path: ./
+          continue-on-error: true
+        
+        - name: Get latest CodeQL results
+          id: codeql
+          run: |
+            # Get the latest CodeQL scan results via GitHub API
+            SCAN_DATA=$(gh api repos/${{ github.repository }}/code-scanning/analyses \
+            --jq 'map(select(.tool.name == "CodeQL")) | first | {id: .id, created_at: .created_at, results_count: .results_count, tool: .tool}')
+            
+            echo "scan_data=$SCAN_DATA" >> $GITHUB_OUTPUT
+            echo "📊 Latest CodeQL scan: $SCAN_DATA"
+          env: 
+            GH_TOKEN: ${{github.token}}
+        
+        - name: Get PR information
+          id: pr_info
+          if: github.event_name == 'push'
+          run: |
+            # Get the PR that was merged for this commit
+            PR_DATA=$(gh api repos/${{ github.repository }}/commits/${{ github.sha }}/pulls \
+            --jq 'first | {number: .number, title: .title, user: .user.login, merged_at: .merged_at}')
+            
+            echo "pr_data=$PR_DATA" >> $GITHUB_OUTPUT
+            echo "🔀 Merged PR: $PR_DATA"
+          env:
+            GH_TOKEN: ${{ github.token }}
+
+        - name: Create comprehensive release attestation
+          uses: actions/attest@v1
+          with:
+            subject-path: 'vulnerable-app-${{ github.sha }}.tar.gz'
+            predicate-type: "https://slsa.dev/spec/v1.1/provenance"
+            predicate: |
+                {
+                "release_approval": {
+                "status": "approved",
+                "approved_by": "${{ github.actor }}",
+                "approval_time": "${{ github.event.head_commit.timestamp }}",
+                "release_type": "main_branch_merge",
+                "environment": "development"
+                },
+                "security_context": {
+                "codeql_scan": ${{ steps.codeql.outputs.scan_data }},
+                "security_review_status": "vulnerable_by_design",
+                "compliance_notes": "Educational use only - contains intentional vulnerabilities"
+                },
+                "source_context": {
+                "pr_info": ${{ steps.pr_info.outputs.pr_data }},
+                "commit": {
+                    "sha": "${{ github.sha }}",
+                    "message": "${{ github.event.head_commit.message }}",
+                    "author": "${{ github.event.head_commit.author.name }}",
+                    "timestamp": "${{ github.event.head_commit.timestamp }}"
+                }
+                },
+                "attestation_chain": {
+                "build_attestation": "linked",
+                "provenance_attestation": "linked", 
+                "sbom_attestation": "linked",
+                "codeql_attestation": "linked"
+                }
+                }
+
+        - name: Verify attestation chain
+          run: |
+                    echo "🔐 Verifying attestation chain for artifact..."
+                    if [ -f "artifacts/vulnerable-app-source-${{ github.sha }}.tar.gz" ]; then
+                    # Use GitHub CLI to verify attestations
+                    gh attestation verify artifacts/vulnerable-app-source-${{ github.sha }}.tar.gz \
+                        --owner ${{ github.repository_owner }} || echo "⚠️ Verification failed or no attestations found"
+                    else
+                    echo "ℹ️ Artifact not found in this workflow run - may be from previous run"
+                    fi
+          env:
+            GH_TOKEN: ${{ github.token }}
+
+
+

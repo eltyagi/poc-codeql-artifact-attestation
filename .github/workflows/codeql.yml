@@ -64,18 +64,11 @@ jobs:
       with:
         category: "/language:${{matrix.language}}"
 
-    - name: Upload SARIF results
-      uses: actions/upload-artifact@v4
-      if: always()
-      with:
-        name: codeql-sarif-results
-        path: codeql-results/*.sarif
-        
     - name: Create CodeQL attestation
       if: github.event_name == 'pull_request'
       uses: actions/attest@v1
       with:
-        subject-path: codeql-results/*.sarif
+        subject-path: codeql-results-${{ github.sha }}.sarif
         predicate-type: https://github.com/in-toto/attestation/blob/main/spec/predicates/vulns_02.md
         predicate: |
               {
