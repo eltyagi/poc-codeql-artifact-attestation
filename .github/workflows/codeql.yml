@@ -71,8 +71,7 @@ jobs:
       if: always()
       with:
         name: codeql-sarif-results
-        path: codeql-results/codeql-${{github.sha}}.sarif
-        retention-days: 30
+        path: codeql-results/${{github.workflow_sha}}.sarif
 
     - name: Create CodeQL attestation
       if: github.event_name == 'pull_request'
