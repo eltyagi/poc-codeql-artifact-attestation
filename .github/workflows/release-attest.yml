@@ -23,13 +23,6 @@ jobs:
         - name: Checkout repository
           uses: actions/checkout@v4
         
-        - name: Download artifacts
-          uses: actions/download-artifact@v4
-          with:
-            name: vulnerable-app-source
-            path: ./
-          continue-on-error: true
-        
         - name: Get latest CodeQL results
           id: codeql
           run: |
