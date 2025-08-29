@@ -33,12 +33,20 @@ jobs:
         - name: Get latest CodeQL results
           id: codeql
           run: |
-            # Get the latest CodeQL scan results via GitHub API
-            SCAN_DATA=$(gh api repos/${{ github.repository }}/code-scanning/analyses \
-            --jq 'map(select(.tool.name == "CodeQL")) | first | {id: .id, created_at: .created_at, results_count: .results_count, tool: .tool}')
+            # Get the latest CodeQL scan results via GitHub API for all languages
+            PYTHON_SCAN=$(gh api repos/${{ github.repository }}/code-scanning/analyses \
+              --jq 'map(select(.tool.name == "CodeQL" and .category == "/language:python")) | first | {id: .id, created_at: .created_at, results_count: .results_count, language: "python"}')
             
-            echo "scan_data=$SCAN_DATA" >> $GITHUB_OUTPUT
-            echo "📊 Latest CodeQL scan: $SCAN_DATA"
+            ACTIONS_SCAN=$(gh api repos/${{ github.repository }}/code-scanning/analyses \
+              --jq 'map(select(.tool.name == "CodeQL" and .category == "/language:actions")) | first | {id: .id, created_at: .created_at, results_count: .results_count, language: "actions"}')
+            
+            # Combine both scan results
+            COMBINED_SCANS=$(echo "$PYTHON_SCAN $ACTIONS_SCAN" | jq -s 'map(select(. != null))')
+            
+            echo "scan_data=$COMBINED_SCANS" >> $GITHUB_OUTPUT
+            echo "📊 Latest CodeQL scans:"
+            echo "Python: $PYTHON_SCAN"
+            echo "Actions: $ACTIONS_SCAN"
           env: 
             GH_TOKEN: ${{github.token}}
         
@@ -70,7 +78,7 @@ jobs:
                 "environment": "development"
                 },
                 "security_context": {
-                "codeql_scan": ${{ steps.codeql.outputs.scan_data }},
+                "codeql_scans": ${{ steps.codeql.outputs.scan_data }},
                 "security_review_status": "vulnerable_by_design",
                 "compliance_notes": "Educational use only - contains intentional vulnerabilities"
                 },
@@ -93,14 +101,14 @@ jobs:
 
         - name: Verify attestation chain
           run: |
-                    echo "🔐 Verifying attestation chain for artifact..."
-                    if [ -f "artifacts/vulnerable-app-source-${{ github.sha }}.tar.gz" ]; then
-                    # Use GitHub CLI to verify attestations
-                    gh attestation verify artifacts/vulnerable-app-source-${{ github.sha }}.tar.gz \
-                        --owner ${{ github.repository_owner }} || echo "⚠️ Verification failed or no attestations found"
-                    else
-                    echo "ℹ️ Artifact not found in this workflow run - may be from previous run"
-                    fi
+            echo "🔐 Verifying attestation chain for artifact..."
+            if [ -f "vulnerable-app-${{ github.sha }}.tar.gz" ]; then
+              # Use GitHub CLI to verify attestations
+              gh attestation verify vulnerable-app-${{ github.sha }}.tar.gz \
+                --owner ${{ github.repository_owner }} || echo "⚠️ Verification failed or no attestations found"
+            else
+              echo "ℹ️ Artifact not found in this workflow run - may be from previous run"
+            fi
           env:
             GH_TOKEN: ${{ github.token }}
 

@@ -70,8 +70,8 @@ jobs:
       uses: actions/upload-artifact@v4
       if: always()
       with:
-        name: codeql-sarif-results
-        path: codeql-results/${{github.workflow_sha}}.sarif
+        name: codeql-sarif-results-${{ matrix.language }}
+        path: codeql-results/*.sarif
 
     - name: Create CodeQL attestation
       if: github.event_name == 'pull_request'
