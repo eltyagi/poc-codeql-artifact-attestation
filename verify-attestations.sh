@@ -1,15 +1,17 @@
 #!/bin/bash
 
-# Attestation Verification Script
-# This script helps verify attestations for artifacts in the repository
+# Unified Attestation Verification Script
+# This script verifies attestations created by the unified-build-attest.yml workflow
 
 set -e
 
 REPO="eltyagi/poc-codeql-artifact-attestation"
 ARTIFACT_PATTERN="vulnerable-app-*.tar.gz"
 
-echo "🔍 Attestation Verification Tool"
-echo "================================="
+echo "🔍 Unified Attestation Verification Tool"
+echo "========================================"
+echo "This script verifies attestations from the simplified unified workflow"
+echo ""
 
 # Function to verify a specific artifact
 verify_artifact() {
@@ -32,36 +34,52 @@ verify_artifact() {
     echo "🔐 SHA256: $file_hash"
     echo ""
     
-    # Verify build provenance
-    echo "🏗️  Verifying build provenance..."
+    # Verify SLSA build provenance
+    echo "🏗️  Verifying SLSA build provenance..."
     if gh attestation verify "$artifact_file" --repo "$REPO" 2>/dev/null; then
-        echo "✅ Build provenance: VERIFIED"
+        echo "✅ SLSA build provenance: VERIFIED"
     else
-        echo "❌ Build provenance: FAILED"
+        echo "❌ SLSA build provenance: FAILED"
     fi
     
-    # Verify security notices
-    echo "🛡️  Verifying security notices..."
+    # Verify security assessment attestation
+    echo "� Verifying security assessment..."
+    if gh attestation verify "$artifact_file" --repo "$REPO" --predicate-type "https://github.com/in-toto/attestation/tree/main/spec/predicates/security-scan" 2>/dev/null; then
+        echo "✅ Security assessment: VERIFIED"
+    else
+        echo "❌ Security assessment: FAILED"
+    fi
+    
+    # Verify vulnerability disclosure attestation
+    echo "⚠️  Verifying vulnerability disclosure..."
     if gh attestation verify "$artifact_file" --repo "$REPO" --predicate-type "https://slsa.dev/spec/v1.1/provenance" 2>/dev/null; then
-        echo "✅ Security notices: VERIFIED"
+        echo "✅ Vulnerability disclosure: VERIFIED"
     else
-        echo "❌ Security notices: FAILED"
+        echo "❌ Vulnerability disclosure: FAILED"
     fi
     
-    # Verify release attestations
-    echo "🚀 Verifying release attestations..."
-    if gh attestation verify "$artifact_file" --repo "$REPO" --signer-workflow ".github/workflows/release-attest.yml" 2>/dev/null; then
-        echo "✅ Release attestations: VERIFIED"
+    # Verify unified workflow signer
+    echo "🔧 Verifying workflow signer..."
+    if gh attestation verify "$artifact_file" --repo "$REPO" --signer-workflow ".github/workflows/unified-build-attest.yml" 2>/dev/null; then
+        echo "✅ Unified workflow signer: VERIFIED"
     else
-        echo "❌ Release attestations: FAILED"
+        echo "❌ Unified workflow signer: FAILED"
     fi
     
     # Get detailed info
     echo ""
     echo "📋 Detailed attestation info:"
+    echo "   Attestations found for this artifact:"
     gh attestation verify "$artifact_file" --repo "$REPO" --format json 2>/dev/null | \
-        jq -r '.[] | "  • " + .verificationResult.statement.predicateType + " (signed by: " + (.verificationResult.statement.predicate.runDetails.builder.id // "unknown") + ")"' 2>/dev/null || \
+        jq -r '.[] | "  • " + .verificationResult.statement.predicateType + " (workflow: " + (.verificationResult.statement.predicate.runDetails.builder.id // (.verificationResult.statement.predicate.metadata.created_by // "unknown")) + ")"' 2>/dev/null || \
         echo "  Could not retrieve detailed information"
+    
+    # Extract security summary if available
+    echo ""
+    echo "🔍 Security scan summary:"
+    gh attestation verify "$artifact_file" --repo "$REPO" --format json 2>/dev/null | \
+        jq -r '.[] | select(.verificationResult.statement.predicateType == "https://github.com/in-toto/attestation/tree/main/spec/predicates/security-scan") | .verificationResult.statement.predicate.results | "  • Total alerts: " + (.total_alerts | tostring) + " (Critical: " + (.severity_counts.critical | tostring) + ", High: " + (.severity_counts.high | tostring) + ", Medium: " + (.severity_counts.medium | tostring) + ", Low: " + (.severity_counts.low | tostring) + ")"' 2>/dev/null || \
+        echo "  No security scan data found in attestations"
     
     echo ""
 }
@@ -95,6 +113,9 @@ done
 echo "🎉 Verification complete!"
 echo ""
 echo "💡 Usage tips:"
-echo "   • Run this script regularly to check attestation integrity"
-echo "   • Use 'gh attestation verify --help' for more options"
-echo "   • Check workflow logs for attestation creation details"
+echo "   • Run this script after the unified-build-attest.yml workflow completes"
+echo "   • The unified workflow creates 3 attestations: SLSA provenance, security assessment, and vulnerability disclosure"
+echo "   • Use 'gh attestation verify --help' for more verification options"
+echo "   • Check GitHub Actions logs for detailed attestation creation info"
+echo ""
+echo "🔗 For more details, see the unified workflow: .github/workflows/unified-build-attest.yml"

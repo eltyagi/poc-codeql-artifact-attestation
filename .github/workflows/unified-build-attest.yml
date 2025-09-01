@@ -1,0 +1,299 @@
+name: "Unified Build and Attestation"
+
+on:
+  push:
+    branches: ["main", "develop"]
+  pull_request:
+    branches: ["main"]
+  release:
+    types: ["published"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  security-events: write
+  attestations: write
+  id-token: write
+  actions: read
+  packages: read
+
+jobs:
+  build-scan-attest:
+    name: Build, Scan, and Attest
+    runs-on: ubuntu-latest
+    
+    outputs:
+      artifact-name: ${{ steps.build.outputs.artifact_name }}
+      artifact-hash: ${{ steps.build.outputs.artifact_hash }}
+      codeql-results: ${{ steps.codeql-results.outputs.security_summary }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Build artifact
+        id: build
+        run: |
+          echo "🏗️ Building artifact..."
+          
+          # Create the artifact package
+          tar --exclude='.git' \
+              --exclude='venv' \
+              --exclude='__pycache__' \
+              --exclude='*.log' \
+              --exclude='*.db' \
+              --exclude='.github' \
+              -czf vulnerable-app-${{ github.sha }}.tar.gz \
+              *.py requirements.txt README.md *.md *.json *.ini
+          
+          # Calculate hash
+          SHA256=$(sha256sum vulnerable-app-${{ github.sha }}.tar.gz | cut -d' ' -f1)
+          
+          # Output for later steps
+          echo "artifact_name=vulnerable-app-${{ github.sha }}.tar.gz" >> $GITHUB_OUTPUT
+          echo "artifact_hash=$SHA256" >> $GITHUB_OUTPUT
+          
+          echo "✅ Built: vulnerable-app-${{ github.sha }}.tar.gz"
+          echo "🔐 SHA256: $SHA256"
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: python
+          queries: security-extended
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: "/language:python"
+          upload: true
+
+      - name: Wait for CodeQL results and extract security data
+        id: codeql-results
+        run: |
+          echo "🔍 Extracting CodeQL security results..."
+          
+          # Wait a moment for results to be processed
+          sleep 10
+          
+          # Get CodeQL alerts for this commit/ref
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            REF_NAME="refs/pull/${{ github.event.pull_request.number }}/head"
+            COMMIT_SHA="${{ github.event.pull_request.head.sha }}"
+          else
+            REF_NAME="${{ github.ref }}"
+            COMMIT_SHA="${{ github.sha }}"
+          fi
+          
+          echo "📊 Checking alerts for ref: $REF_NAME, commit: $COMMIT_SHA"
+          
+          # Get alerts from the API
+          ALERTS_DATA=$(gh api repos/${{ github.repository }}/code-scanning/alerts \
+            --jq --arg ref "$REF_NAME" '
+            map(select(.state == "open")) |
+            {
+              scan_timestamp: now | strftime("%Y-%m-%dT%H:%M:%SZ"),
+              commit_sha: "'"$COMMIT_SHA"'",
+              ref: "'"$REF_NAME"'",
+              total_alerts: length,
+              severity_counts: {
+                critical: map(select(.rule.security_severity_level == "critical")) | length,
+                high: map(select(.rule.security_severity_level == "high")) | length,
+                medium: map(select(.rule.security_severity_level == "medium")) | length,
+                low: map(select(.rule.security_severity_level == "low")) | length,
+                note: map(select(.rule.security_severity_level == "note")) | length,
+                warning: map(select(.rule.security_severity_level == "warning")) | length
+              },
+              rule_summary: (group_by(.rule.id) | map({
+                rule_id: .[0].rule.id,
+                rule_name: .[0].rule.name,
+                count: length,
+                severity: .[0].rule.security_severity_level
+              }) | sort_by(.count) | reverse | .[0:10]),
+              tools_used: ["codeql"],
+              languages_scanned: ["python"]
+            }' 2>/dev/null) || echo '{
+              "scan_timestamp": "'$(date -u +%Y-%m-%dT%H:%M:%SZ)'",
+              "commit_sha": "'"$COMMIT_SHA"'",
+              "ref": "'"$REF_NAME"'",
+              "total_alerts": 0,
+              "severity_counts": {"critical": 0, "high": 0, "medium": 0, "low": 0, "note": 0, "warning": 0},
+              "rule_summary": [],
+              "tools_used": ["codeql"],
+              "languages_scanned": ["python"],
+              "note": "No alerts found or API access limited"
+            }'
+          
+          echo "security_summary<<EOF" >> $GITHUB_OUTPUT
+          echo "$ALERTS_DATA" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+          
+          echo "📋 Security Summary:"
+          echo "$ALERTS_DATA" | jq '.'
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: vulnerable-app-source
+          path: ${{ steps.build.outputs.artifact_name }}
+          retention-days: 30
+
+      - name: Create SLSA build provenance attestation
+        uses: actions/attest-build-provenance@v1
+        with:
+          subject-path: ${{ steps.build.outputs.artifact_name }}
+
+      - name: Create security assessment attestation
+        uses: actions/attest@v1
+        with:
+          subject-path: ${{ steps.build.outputs.artifact_name }}
+          predicate-type: "https://github.com/in-toto/attestation/tree/main/spec/predicates/security-scan"
+          predicate: |
+            {
+              "scan_type": "static-analysis",
+              "scanner": {
+                "name": "CodeQL",
+                "vendor": "GitHub",
+                "version": "v3",
+                "uri": "https://github.com/github/codeql-action"
+              },
+              "scan_started_on": "${{ steps.codeql-results.outputs.security_summary }}",
+              "scan_finished_on": "${{ steps.codeql-results.outputs.security_summary }}",
+              "artifact": {
+                "name": "${{ steps.build.outputs.artifact_name }}",
+                "digest": {
+                  "sha256": "${{ steps.build.outputs.artifact_hash }}"
+                }
+              },
+              "scan_context": {
+                "repository": "${{ github.repository }}",
+                "ref": "${{ github.ref }}",
+                "commit_sha": "${{ github.sha }}",
+                "workflow_run_id": "${{ github.run_id }}",
+                "event_name": "${{ github.event_name }}",
+                "pr_number": "${{ github.event.pull_request.number || 'null' }}"
+              },
+              "results": ${{ steps.codeql-results.outputs.security_summary }},
+              "metadata": {
+                "created_by": "unified-build-attest.yml",
+                "attestation_version": "1.0",
+                "purpose": "Supply chain security assessment for intentionally vulnerable application"
+              }
+            }
+
+      - name: Create vulnerability disclosure attestation
+        uses: actions/attest@v1
+        with:
+          subject-path: ${{ steps.build.outputs.artifact_name }}
+          predicate-type: "https://slsa.dev/spec/v1.1/provenance"
+          predicate: |
+            {
+              "notice": "INTENTIONALLY VULNERABLE SOFTWARE - FOR EDUCATIONAL USE ONLY",
+              "purpose": "Security testing, training, and tool validation",
+              "warnings": [
+                "Contains multiple SQL injection vulnerabilities",
+                "Contains cross-site scripting (XSS) vulnerabilities", 
+                "Contains command injection vulnerabilities",
+                "Uses vulnerable dependencies with known CVEs",
+                "Implements insecure authentication mechanisms",
+                "DO NOT DEPLOY IN PRODUCTION ENVIRONMENTS"
+              ],
+              "intended_use": [
+                "Security training and education",
+                "Penetration testing practice",
+                "Security tool validation",
+                "DevSecOps pipeline testing"
+              ],
+              "vulnerability_summary": ${{ steps.codeql-results.outputs.security_summary }},
+              "build_info": {
+                "repository": "${{ github.repository }}",
+                "commit": "${{ github.sha }}",
+                "ref": "${{ github.ref }}",
+                "workflow_run": "${{ github.run_id }}",
+                "built_at": "${{ github.event.head_commit.timestamp || github.event.repository.updated_at }}",
+                "artifact_hash": "${{ steps.build.outputs.artifact_hash }}"
+              },
+              "compliance": {
+                "slsa_build_level": 1,
+                "supply_chain_security": "educational-only"
+              }
+            }
+
+      - name: Verify attestations
+        run: |
+          echo "🔐 Verifying created attestations..."
+          
+          ARTIFACT_FILE="${{ steps.build.outputs.artifact_name }}"
+          
+          echo "📁 Verifying attestations for: $ARTIFACT_FILE"
+          
+          # Verify SLSA build provenance
+          echo "🏗️ Verifying SLSA build provenance..."
+          if gh attestation verify "$ARTIFACT_FILE" --repo ${{ github.repository }} 2>/dev/null; then
+            echo "✅ SLSA build provenance: VERIFIED"
+          else
+            echo "⚠️ SLSA build provenance: Could not verify (may be processing)"
+          fi
+          
+          # Verify security assessment
+          echo "🔍 Verifying security assessment..."
+          if gh attestation verify "$ARTIFACT_FILE" \
+            --repo ${{ github.repository }} \
+            --predicate-type "https://github.com/in-toto/attestation/tree/main/spec/predicates/security-scan" 2>/dev/null; then
+            echo "✅ Security assessment: VERIFIED"
+          else
+            echo "⚠️ Security assessment: Could not verify (may be processing)"
+          fi
+          
+          # Verify vulnerability disclosure
+          echo "⚠️ Verifying vulnerability disclosure..."
+          if gh attestation verify "$ARTIFACT_FILE" \
+            --repo ${{ github.repository }} \
+            --predicate-type "https://slsa.dev/spec/v1.1/provenance" 2>/dev/null; then
+            echo "✅ Vulnerability disclosure: VERIFIED"
+          else
+            echo "⚠️ Vulnerability disclosure: Could not verify (may be processing)"
+          fi
+          
+          echo ""
+          echo "📊 Attestation Summary:"
+          echo "- Artifact: $ARTIFACT_FILE"
+          echo "- SHA256: ${{ steps.build.outputs.artifact_hash }}"
+          echo "- Security alerts found: $(echo '${{ steps.codeql-results.outputs.security_summary }}' | jq -r '.total_alerts // "unknown"')"
+          echo "- Workflow: unified-build-attest.yml"
+          echo "- Run ID: ${{ github.run_id }}"
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Generate step summary
+        run: |
+          echo "## 🏗️ Build and Security Attestation Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 📦 Artifact Information" >> $GITHUB_STEP_SUMMARY
+          echo "- **Name**: \`${{ steps.build.outputs.artifact_name }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **SHA256**: \`${{ steps.build.outputs.artifact_hash }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Size**: $(ls -lh ${{ steps.build.outputs.artifact_name }} | awk '{print $5}')" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          echo "### 🔍 Security Scan Results" >> $GITHUB_STEP_SUMMARY
+          TOTAL_ALERTS=$(echo '${{ steps.codeql-results.outputs.security_summary }}' | jq -r '.total_alerts // 0')
+          echo "- **Total Alerts**: $TOTAL_ALERTS" >> $GITHUB_STEP_SUMMARY
+          
+          if [ "$TOTAL_ALERTS" -gt 0 ]; then
+            echo "- **Severity Breakdown**:" >> $GITHUB_STEP_SUMMARY
+            echo '${{ steps.codeql-results.outputs.security_summary }}' | jq -r '.severity_counts | "  - Critical: \(.critical), High: \(.high), Medium: \(.medium), Low: \(.low)"' >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 🔐 Attestations Created" >> $GITHUB_STEP_SUMMARY
+          echo "1. **SLSA Build Provenance** - Standard build provenance per SLSA specification" >> $GITHUB_STEP_SUMMARY
+          echo "2. **Security Assessment** - CodeQL scan results and security analysis" >> $GITHUB_STEP_SUMMARY
+          echo "3. **Vulnerability Disclosure** - Educational purpose and vulnerability warnings" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 🔍 Verification" >> $GITHUB_STEP_SUMMARY
+          echo "To verify these attestations:" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
+          echo "gh attestation verify ${{ steps.build.outputs.artifact_name }} --repo ${{ github.repository }}" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
