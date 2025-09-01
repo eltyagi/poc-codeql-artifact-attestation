@@ -146,117 +146,80 @@ jobs:
           subject-path: ${{ steps.build.outputs.artifact_name }}
 
       - name: Create security assessment attestation
-        env:
-          SECURITY_SUMMARY: ${{ steps.codeql-results.outputs.security_summary }}
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          echo "🔐 Creating security assessment attestation..."
-          
-          # Create predicate JSON with proper escaping
-          cat > predicate.json << 'EOF'
-          {
-            "scan_type": "static-analysis",
-            "scanner": {
-              "name": "CodeQL",
-              "vendor": "GitHub",
-              "version": "v3",
-              "uri": "https://github.com/github/codeql-action"
-            },
-            "scan_started_on": "${{ github.run_id }}",
-            "scan_finished_on": "${{ github.run_id }}",
-            "artifact": {
-              "name": "${{ steps.build.outputs.artifact_name }}",
-              "digest": {
-                "sha256": "${{ steps.build.outputs.artifact_hash }}"
+        uses: actions/attest@v1
+        with:
+          subject-path: ${{ steps.build.outputs.artifact_name }}
+          predicate-type: "https://github.com/in-toto/attestation/tree/main/spec/predicates/security-scan"
+          predicate: |
+            {
+              "scan_type": "static-analysis",
+              "scanner": {
+                "name": "CodeQL",
+                "vendor": "GitHub",
+                "version": "v3",
+                "uri": "https://github.com/github/codeql-action"
+              },
+              "scan_started_on": "${{ github.run_id }}",
+              "scan_finished_on": "${{ github.run_id }}",
+              "artifact": {
+                "name": "${{ steps.build.outputs.artifact_name }}",
+                "digest": {
+                  "sha256": "${{ steps.build.outputs.artifact_hash }}"
+                }
+              },
+              "scan_context": {
+                "repository": "${{ github.repository }}",
+                "ref": "${{ github.ref }}",
+                "commit_sha": "${{ github.sha }}",
+                "workflow_run_id": "${{ github.run_id }}",
+                "event_name": "${{ github.event_name }}",
+                "pr_number": ${{ github.event.pull_request.number || 'null' }}
+              },
+              "results": ${{ steps.codeql-results.outputs.security_summary || '{"total_alerts": 0, "note": "No security data available"}' }},
+              "metadata": {
+                "created_by": "unified-build-attest.yml",
+                "attestation_version": "1.0",
+                "purpose": "Supply chain security assessment for intentionally vulnerable application"
               }
-            },
-            "scan_context": {
-              "repository": "${{ github.repository }}",
-              "ref": "${{ github.ref }}",
-              "commit_sha": "${{ github.sha }}",
-              "workflow_run_id": "${{ github.run_id }}",
-              "event_name": "${{ github.event_name }}",
-              "pr_number": "${{ github.event.pull_request.number || 'null' }}"
-            },
-            "metadata": {
-              "created_by": "unified-build-attest.yml",
-              "attestation_version": "1.0",
-              "purpose": "Supply chain security assessment for intentionally vulnerable application"
             }
-          }
-          EOF
-          
-          # Add results if available
-          if [ -n "$SECURITY_SUMMARY" ] && [ "$SECURITY_SUMMARY" != "" ]; then
-            echo "Adding security summary to predicate..."
-            # Use jq to properly merge the security summary
-            echo "$SECURITY_SUMMARY" | jq '. as $results | {}' > /tmp/results.json
-            jq '. + {"results": input}' predicate.json /tmp/results.json > predicate_final.json
-          else
-            echo "No security summary available, using empty results..."
-            jq '. + {"results": {"total_alerts": 0, "note": "No security data available"}}' predicate.json > predicate_final.json
-          fi
-          
-          # Create attestation using the predicate file
-          gh attestation create ${{ steps.build.outputs.artifact_name }} \
-            --predicate-type "https://github.com/in-toto/attestation/tree/main/spec/predicates/security-scan" \
-            --predicate @predicate_final.json
 
       - name: Create vulnerability disclosure attestation
-        env:
-          SECURITY_SUMMARY: ${{ steps.codeql-results.outputs.security_summary }}
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          echo "⚠️ Creating vulnerability disclosure attestation..."
-          
-          # Create predicate JSON with proper escaping
-          cat > vuln_predicate.json << 'EOF'
-          {
-            "notice": "INTENTIONALLY VULNERABLE SOFTWARE - FOR EDUCATIONAL USE ONLY",
-            "purpose": "Security testing, training, and tool validation",
-            "warnings": [
-              "Contains multiple SQL injection vulnerabilities",
-              "Contains cross-site scripting (XSS) vulnerabilities", 
-              "Contains command injection vulnerabilities",
-              "Uses vulnerable dependencies with known CVEs",
-              "Implements insecure authentication mechanisms",
-              "DO NOT DEPLOY IN PRODUCTION ENVIRONMENTS"
-            ],
-            "intended_use": [
-              "Security training and education",
-              "Penetration testing practice",
-              "Security tool validation",
-              "DevSecOps pipeline testing"
-            ],
-            "build_info": {
-              "repository": "${{ github.repository }}",
-              "commit": "${{ github.sha }}",
-              "ref": "${{ github.ref }}",
-              "workflow_run": "${{ github.run_id }}",
-              "built_at": "${{ github.event.head_commit.timestamp || github.event.repository.updated_at }}",
-              "artifact_hash": "${{ steps.build.outputs.artifact_hash }}"
-            },
-            "compliance": {
-              "slsa_build_level": 1,
-              "supply_chain_security": "educational-only"
+        uses: actions/attest@v1
+        with:
+          subject-path: ${{ steps.build.outputs.artifact_name }}
+          predicate-type: "https://slsa.dev/spec/v1.1/provenance"
+          predicate: |
+            {
+              "notice": "INTENTIONALLY VULNERABLE SOFTWARE - FOR EDUCATIONAL USE ONLY",
+              "purpose": "Security testing, training, and tool validation",
+              "warnings": [
+                "Contains multiple SQL injection vulnerabilities",
+                "Contains cross-site scripting (XSS) vulnerabilities", 
+                "Contains command injection vulnerabilities",
+                "Uses vulnerable dependencies with known CVEs",
+                "Implements insecure authentication mechanisms",
+                "DO NOT DEPLOY IN PRODUCTION ENVIRONMENTS"
+              ],
+              "intended_use": [
+                "Security training and education",
+                "Penetration testing practice",
+                "Security tool validation",
+                "DevSecOps pipeline testing"
+              ],
+              "build_info": {
+                "repository": "${{ github.repository }}",
+                "commit": "${{ github.sha }}",
+                "ref": "${{ github.ref }}",
+                "workflow_run": "${{ github.run_id }}",
+                "built_at": "${{ github.event.head_commit.timestamp || github.event.repository.updated_at }}",
+                "artifact_hash": "${{ steps.build.outputs.artifact_hash }}"
+              },
+              "vulnerability_summary": ${{ steps.codeql-results.outputs.security_summary || '{"total_alerts": 0, "note": "No vulnerability data available"}' }},
+              "compliance": {
+                "slsa_build_level": 1,
+                "supply_chain_security": "educational-only"
+              }
             }
-          }
-          EOF
-          
-          # Add vulnerability summary if available
-          if [ -n "$SECURITY_SUMMARY" ] && [ "$SECURITY_SUMMARY" != "" ]; then
-            echo "Adding vulnerability summary to predicate..."
-            echo "$SECURITY_SUMMARY" | jq '.' > /tmp/vuln_results.json
-            jq '. + {"vulnerability_summary": input}' vuln_predicate.json /tmp/vuln_results.json > vuln_predicate_final.json
-          else
-            echo "No vulnerability summary available, using basic predicate..."
-            jq '. + {"vulnerability_summary": {"total_alerts": 0, "note": "No vulnerability data available"}}' vuln_predicate.json > vuln_predicate_final.json
-          fi
-          
-          # Create attestation using the predicate file
-          gh attestation create ${{ steps.build.outputs.artifact_name }} \
-            --predicate-type "https://slsa.dev/spec/v1.1/provenance" \
-            --predicate @vuln_predicate_final.json
 
       - name: Verify attestations
         run: |
