@@ -1,14 +1,22 @@
-# Attestation Verification Guide
+# Unified Attestation Verification Guide
 
-This repository implements a comprehensive software supply chain security system using GitHub's attestation features. This guide explains how to verify that attestations are created correctly.
+This repository implements a simplified software supply chain security system using GitHub's attestation features with a single unified workflow. This guide explains how to verify that attestations are created correctly.
 
 ## Overview
 
-The repository creates three types of attestations:
+The repository uses **one unified workflow** that creates three types of attestations in a single, reliable process:
 
-1. **Build Provenance** - Proves how artifacts were built
-2. **Security Assessments** - CodeQL vulnerability scan results  
-3. **Release Attestations** - Complete release pipeline verification
+1. **SLSA Build Provenance** - Standard build provenance attestation
+2. **Security Assessment** - CodeQL vulnerability scan results embedded in attestation  
+3. **Vulnerability Disclosure** - Educational purpose and vulnerability warnings
+
+## Key Benefits of the Unified Approach
+
+✅ **Reliable timing** - Everything happens in sequence in one job  
+✅ **Simpler coordination** - No workflow dependencies or timing issues  
+✅ **Better data consistency** - CodeQL results are fresh and matched to exact artifact  
+✅ **Easier verification** - Predictable attestation types  
+✅ **Atomic operations** - Build + security scan + attestation happen together
 
 ## Quick Verification
 
@@ -24,50 +32,75 @@ Run the provided script to verify all attestations:
 
 #### 1. Basic Attestation Verification
 ```bash
-# Verify build provenance (most common)
+# Verify all attestations for an artifact
 gh attestation verify vulnerable-app-{SHA}.tar.gz \
   --repo eltyagi/poc-codeql-artifact-attestation
 
-# Verify with specific workflow
+# Verify SLSA build provenance specifically
 gh attestation verify vulnerable-app-{SHA}.tar.gz \
   --repo eltyagi/poc-codeql-artifact-attestation \
-  --signer-workflow ".github/workflows/build-attest.yml"
+  --signer-workflow ".github/workflows/unified-build-attest.yml"
 ```
 
-#### 2. Security Notice Verification
+#### 2. Security Assessment Verification
 ```bash
+# Verify security scan attestation
+gh attestation verify vulnerable-app-{SHA}.tar.gz \
+  --repo eltyagi/poc-codeql-artifact-attestation \
+  --predicate-type "https://github.com/in-toto/attestation/tree/main/spec/predicates/security-scan"
+```
+
+#### 3. Vulnerability Disclosure Verification
+```bash
+# Verify vulnerability disclosure attestation
 gh attestation verify vulnerable-app-{SHA}.tar.gz \
   --repo eltyagi/poc-codeql-artifact-attestation \
   --predicate-type "https://slsa.dev/spec/v1.1/provenance"
 ```
 
-#### 3. Detailed Attestation Information
+#### 4. Detailed Attestation Information
 ```bash
 gh attestation verify vulnerable-app-{SHA}.tar.gz \
   --repo eltyagi/poc-codeql-artifact-attestation \
   --format json | jq '.[] | {
     predicate_type: .verificationResult.statement.predicateType,
-    signer: .verificationResult.statement.predicate.runDetails.builder.id,
-    subject: .verificationResult.statement.subject[0]
+    workflow: (.verificationResult.statement.predicate.metadata.created_by // "unknown"),
+    subject: .verificationResult.statement.subject[0],
+    security_summary: .verificationResult.statement.predicate.results // null
   }'
+```
+
+#### 5. Extract Security Scan Results
+```bash
+gh attestation verify vulnerable-app-{SHA}.tar.gz \
+  --repo eltyagi/poc-codeql-artifact-attestation \
+  --format json | jq '.[] | 
+  select(.verificationResult.statement.predicateType == "https://github.com/in-toto/attestation/tree/main/spec/predicates/security-scan") | 
+  .verificationResult.statement.predicate.results'
 ```
 
 ## Workflow Integration
 
-### Build Workflow (`build-attest.yml`)
-- **Triggers**: PR, push to main, releases
-- **Creates**: Build provenance + security notice attestations
+### Unified Workflow (`unified-build-attest.yml`)
+- **Triggers**: PR, push to main/develop, releases, manual dispatch
+- **Process**: Build → CodeQL Scan → Extract Results → Create Attestations
+- **Creates**: SLSA provenance + security assessment + vulnerability disclosure attestations
 - **Artifacts**: `vulnerable-app-{SHA}.tar.gz`
 
-### Release Workflow (`release-attest.yml`)
-- **Triggers**: Push to main, published releases
-- **Creates**: Security assessment + release provenance attestations
-- **Verifies**: All existing attestations
+**Workflow Steps:**
+1. Build artifact package
+2. Initialize and run CodeQL analysis
+3. Extract security results from CodeQL API
+4. Create SLSA build provenance attestation
+5. Create security assessment attestation (with CodeQL data)
+6. Create vulnerability disclosure attestation 
+7. Verify all attestations were created successfully
 
-### CodeQL Workflow (`codeql.yml`)
-- **Triggers**: Push/PR, scheduled scans
-- **Creates**: Vulnerability scan attestations
-- **Languages**: Python, GitHub Actions
+### Legacy Workflows (Deprecated)
+The old multi-workflow approach has been replaced with the unified workflow:
+- ~~`build-attest.yml`~~ → Replaced by `unified-build-attest.yml`
+- ~~`release-attest.yml`~~ → Functionality merged into unified workflow  
+- ~~`codeql.yml`~~ → CodeQL analysis integrated into unified workflow
 
 ## Verification Checklist
 
@@ -77,15 +110,20 @@ gh attestation verify vulnerable-app-{SHA}.tar.gz \
    - File exists and has correct SHA256
    - Matches expected artifact from workflow
 
-2. **Build Provenance** 
-   - Signed by correct workflow
+2. **SLSA Build Provenance** 
+   - Signed by unified workflow
    - Contains accurate build metadata
    - References correct commit SHA
 
-3. **Security Assessments**
-   - CodeQL scan results present
-   - Vulnerability data is current
-   - Scan covers all languages
+3. **Security Assessment**
+   - CodeQL scan results embedded in attestation
+   - Vulnerability counts by severity
+   - Scan timestamp and context
+
+4. **Vulnerability Disclosure**
+   - Educational purpose warnings
+   - Intended use documentation
+   - Security summary data
 
 4. **Workflow Identity**
    - Certificate matches repository
@@ -95,34 +133,48 @@ gh attestation verify vulnerable-app-{SHA}.tar.gz \
 ### ❌ Common Issues and Fixes
 
 #### Issue: "No attestations found"
-**Cause**: Artifact name mismatch or attestations not created
+**Cause**: Artifact name mismatch or unified workflow hasn't completed
 **Fix**: 
 - Check artifact naming: `vulnerable-app-{full-commit-sha}.tar.gz`
-- Verify workflow completed successfully
+- Verify unified workflow completed successfully
 - Check artifact exists in GitHub Actions
+- Run: `./verify-attestations.sh` to check all artifacts
 
 #### Issue: "Verification failed"
-**Cause**: Attestation predicate type mismatch
+**Cause**: Attestation predicate type mismatch or workflow signer mismatch
 **Fix**:
 - Use correct predicate type for verification
-- Check if attestation was created with different predicate
+- Verify workflow signer is `unified-build-attest.yml`
+- Check if attestation was created with different predicate type
 
 #### Issue: "Certificate validation failed" 
 **Cause**: Repository or workflow mismatch
 **Fix**:
 - Verify `--repo` flag matches attestation source
-- Check `--signer-workflow` path is correct
+- Check `--signer-workflow` path: `.github/workflows/unified-build-attest.yml`
+- Ensure you have proper access to the repository
 
 ## Advanced Verification
 
 ### Policy Enforcement Example
 ```bash
-# Verify and enforce policy
+# Verify and enforce that security scan attestation exists
 gh attestation verify artifact.tar.gz \
   --repo eltyagi/poc-codeql-artifact-attestation \
   --format json | jq -e '.[] | 
-  select(.verificationResult.statement.predicateType == "https://slsa.dev/provenance/v1") |
-  select(.verificationResult.statement.predicate.runDetails.builder.id | contains("build-attest.yml"))'
+  select(.verificationResult.statement.predicateType == "https://github.com/in-toto/attestation/tree/main/spec/predicates/security-scan") |
+  select(.verificationResult.statement.predicate.metadata.created_by == "unified-build-attest.yml")'
+```
+
+### Extract Security Metrics
+```bash
+# Get security summary from attestations
+gh attestation verify artifact.tar.gz \
+  --repo eltyagi/poc-codeql-artifact-attestation \
+  --format json | jq '.[] | 
+  select(.verificationResult.statement.predicateType | contains("security-scan")) |
+  .verificationResult.statement.predicate.results | 
+  "Total alerts: \(.total_alerts), Critical: \(.severity_counts.critical), High: \(.severity_counts.high)"'
 ```
 
 ### Batch Verification
@@ -137,10 +189,10 @@ done
 ## Monitoring and Automation
 
 ### GitHub Actions Integration
-The workflows automatically verify attestations after creation:
-- Build workflow creates and verifies build attestations
-- Release workflow verifies all attestation types
+The unified workflow automatically verifies attestations after creation:
+- Single workflow creates and verifies all attestation types
 - Logs provide detailed verification results
+- Step summary shows security scan results and attestation status
 
 ### CI/CD Pipeline Integration
 ```yaml
@@ -149,10 +201,15 @@ The workflows automatically verify attestations after creation:
     # Download artifact
     gh run download ${{ github.run_id }} -n vulnerable-app-source
     
-    # Verify attestations
+    # Verify all attestations created by unified workflow
     gh attestation verify vulnerable-app-*.tar.gz \
       --repo ${{ github.repository }} \
-      --signer-workflow ".github/workflows/build-attest.yml"
+      --signer-workflow ".github/workflows/unified-build-attest.yml"
+    
+    # Extract and validate security metrics
+    gh attestation verify vulnerable-app-*.tar.gz \
+      --repo ${{ github.repository }} \
+      --format json | jq '.[] | select(.verificationResult.statement.predicateType | contains("security-scan")) | .verificationResult.statement.predicate.results'
 ```
 
 ## Troubleshooting
