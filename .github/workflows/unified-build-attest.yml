@@ -98,10 +98,14 @@ jobs:
             ANALYSIS_DATA=$(gh api repos/${{ github.repository }}/code-scanning/analyses \
               --jq --arg commit "$COMMIT_SHA" --arg ref "$REF_NAME" '
               map(select(.commit_sha == $commit and .ref == $ref)) | 
-              sort_by(.created_at) | reverse | .[0] // {}' 2>/dev/null) || echo "{}"
+              sort_by(.created_at) | reverse | .[0] // {}' 2>/dev/null || echo "{}")
             
-            # If found, break out of loop
-            if [ "$(echo "$ANALYSIS_DATA" | jq 'keys | length')" -gt 0 ]; then
+            # Debug: Show what we got
+            echo "🔍 Analysis data: $(echo "$ANALYSIS_DATA" | jq -c '.')"
+            
+            # Check if we have a valid analysis (check for id field)
+            HAS_ID=$(echo "$ANALYSIS_DATA" | jq 'has("id")' 2>/dev/null || echo "false")
+            if [ "$HAS_ID" = "true" ]; then
               echo "✅ Found CodeQL analysis on attempt $ATTEMPT"
               break
             fi
@@ -114,9 +118,10 @@ jobs:
               ANALYSIS_DATA=$(gh api repos/${{ github.repository }}/code-scanning/analyses \
                 --jq --arg commit "$COMMIT_SHA" '
                 map(select(.commit_sha == $commit)) | 
-                sort_by(.created_at) | reverse | .[0] // {}' 2>/dev/null) || echo "{}"
+                sort_by(.created_at) | reverse | .[0] // {}' 2>/dev/null || echo "{}")
               
-              if [ "$(echo "$ANALYSIS_DATA" | jq 'keys | length')" -gt 0 ]; then
+              HAS_ID=$(echo "$ANALYSIS_DATA" | jq 'has("id")' 2>/dev/null || echo "false")
+              if [ "$HAS_ID" = "true" ]; then
                 echo "✅ Found analysis using commit SHA fallback"
                 break
               fi
@@ -125,9 +130,10 @@ jobs:
               ANALYSIS_DATA=$(gh api repos/${{ github.repository }}/code-scanning/analyses \
                 --jq --arg ref "$REF_NAME" '
                 map(select(.ref == $ref)) | 
-                sort_by(.created_at) | reverse | .[0] // {}' 2>/dev/null) || echo "{}"
+                sort_by(.created_at) | reverse | .[0] // {}' 2>/dev/null || echo "{}")
               
-              if [ "$(echo "$ANALYSIS_DATA" | jq 'keys | length')" -gt 0 ]; then
+              HAS_ID=$(echo "$ANALYSIS_DATA" | jq 'has("id")' 2>/dev/null || echo "false")
+              if [ "$HAS_ID" = "true" ]; then
                 echo "✅ Found analysis using ref fallback"
                 break
               fi
@@ -156,7 +162,8 @@ jobs:
           fi
           
           # Process the analysis data
-          if [ "$(echo "$ANALYSIS_DATA" | jq 'keys | length')" -gt 0 ]; then
+          HAS_ID=$(echo "$ANALYSIS_DATA" | jq 'has("id")' 2>/dev/null || echo "false")
+          if [ "$HAS_ID" = "true" ]; then
             CURRENT_COUNT=$(echo "$ANALYSIS_DATA" | jq '.results_count // 0')
             SCAN_TIME=$(echo "$ANALYSIS_DATA" | jq -r '.created_at // now')
             NEW_ALERTS_DETECTED=$((CURRENT_COUNT - PREVIOUS_COUNT))
