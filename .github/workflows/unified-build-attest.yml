@@ -73,11 +73,7 @@ jobs:
         run: |
           echo "🔍 Extracting CodeQL security results..."
           
-          # Short wait for CodeQL analysis to be registered
-          echo "⏳ Waiting for CodeQL analysis to be registered..."
-          sleep 15
-          
-          # Get CodeQL analysis info (much faster than alerts API)
+          # Get ref and commit info
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             REF_NAME="refs/pull/${{ github.event.pull_request.number }}/head"
             COMMIT_SHA="${{ github.event.pull_request.head.sha }}"
@@ -88,23 +84,59 @@ jobs:
             PR_NUMBER="null"
           fi
           
-          echo "📊 Checking CodeQL analysis for ref: $REF_NAME, commit: $COMMIT_SHA"
+          echo "📊 Looking for CodeQL analysis: ref=$REF_NAME, commit=$COMMIT_SHA"
           
-          # Get the most recent analysis for this commit using the faster analyses API
-          echo "🔍 Fetching latest CodeQL analysis data..."
-          ANALYSIS_DATA=$(gh api repos/${{ github.repository }}/code-scanning/analyses \
-            --jq --arg commit "$COMMIT_SHA" --arg ref "$REF_NAME" '
-            map(select(.commit_sha == $commit and .ref == $ref)) | 
-            sort_by(.created_at) | reverse | .[0] // {}' 2>/dev/null) || echo "{}"
+          # Wait and retry logic for CodeQL analysis to be registered
+          ANALYSIS_DATA="{}"
+          MAX_ATTEMPTS=6
+          ATTEMPT=1
           
-          # If no analysis found for exact commit+ref, try just commit
-          if [ "$(echo "$ANALYSIS_DATA" | jq 'keys | length')" -eq 0 ]; then
-            echo "🔍 Fallback: Searching by commit SHA only..."
+          while [ $ATTEMPT -le $MAX_ATTEMPTS ]; do
+            echo "🔍 Attempt $ATTEMPT/$MAX_ATTEMPTS: Checking for CodeQL analysis..."
+            
+            # Try to find analysis for this exact commit and ref
             ANALYSIS_DATA=$(gh api repos/${{ github.repository }}/code-scanning/analyses \
-              --jq --arg commit "$COMMIT_SHA" '
-              map(select(.commit_sha == $commit)) | 
+              --jq --arg commit "$COMMIT_SHA" --arg ref "$REF_NAME" '
+              map(select(.commit_sha == $commit and .ref == $ref)) | 
               sort_by(.created_at) | reverse | .[0] // {}' 2>/dev/null) || echo "{}"
-          fi
+            
+            # If found, break out of loop
+            if [ "$(echo "$ANALYSIS_DATA" | jq 'keys | length')" -gt 0 ]; then
+              echo "✅ Found CodeQL analysis on attempt $ATTEMPT"
+              break
+            fi
+            
+            # If this is the last attempt, try fallback strategies
+            if [ $ATTEMPT -eq $MAX_ATTEMPTS ]; then
+              echo "🔍 Final attempt: Trying fallback strategies..."
+              
+              # Fallback 1: Try just by commit SHA (any ref)
+              ANALYSIS_DATA=$(gh api repos/${{ github.repository }}/code-scanning/analyses \
+                --jq --arg commit "$COMMIT_SHA" '
+                map(select(.commit_sha == $commit)) | 
+                sort_by(.created_at) | reverse | .[0] // {}' 2>/dev/null) || echo "{}"
+              
+              if [ "$(echo "$ANALYSIS_DATA" | jq 'keys | length')" -gt 0 ]; then
+                echo "✅ Found analysis using commit SHA fallback"
+                break
+              fi
+              
+              # Fallback 2: Get latest analysis for the ref
+              ANALYSIS_DATA=$(gh api repos/${{ github.repository }}/code-scanning/analyses \
+                --jq --arg ref "$REF_NAME" '
+                map(select(.ref == $ref)) | 
+                sort_by(.created_at) | reverse | .[0] // {}' 2>/dev/null) || echo "{}"
+              
+              if [ "$(echo "$ANALYSIS_DATA" | jq 'keys | length')" -gt 0 ]; then
+                echo "✅ Found analysis using ref fallback"
+                break
+              fi
+            fi
+            
+            echo "⏳ Analysis not ready yet, waiting 10 seconds..."
+            sleep 10
+            ATTEMPT=$((ATTEMPT + 1))
+          done
           
           # Get previous analysis count to detect new alerts
           echo "📈 Checking for new alerts..."
