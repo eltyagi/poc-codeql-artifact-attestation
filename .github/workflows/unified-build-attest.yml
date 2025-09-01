@@ -75,28 +75,56 @@ jobs:
           
           # Wait longer for results to be processed
           echo "⏳ Waiting for CodeQL results to be available in API..."
-          sleep 30
+          sleep 45
           
           # Get CodeQL alerts for this commit/ref
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             REF_NAME="refs/pull/${{ github.event.pull_request.number }}/head"
             COMMIT_SHA="${{ github.event.pull_request.head.sha }}"
+            PR_NUMBER="${{ github.event.pull_request.number }}"
           else
             REF_NAME="${{ github.ref }}"
             COMMIT_SHA="${{ github.sha }}"
+            PR_NUMBER="null"
           fi
           
           echo "📊 Checking alerts for ref: $REF_NAME, commit: $COMMIT_SHA"
           
-          # Get alerts from the API
+          # First try to get alerts for specific ref/commit, then fallback to all open alerts
           echo "🔍 Fetching CodeQL alerts from API..."
-          ALERTS_DATA=$(gh api repos/${{ github.repository }}/code-scanning/alerts \
-            --jq --arg ref "$REF_NAME" --arg commit "$COMMIT_SHA" '
-            map(select(.state == "open")) |
-            {
+          
+          # Try multiple strategies to get alerts
+          ALERTS_JSON=""
+          
+          # Strategy 1: Get all open alerts and filter by commit SHA
+          echo "🔍 Strategy 1: Fetching all open alerts and filtering by commit..."
+          ALERTS_JSON=$(gh api repos/${{ github.repository }}/code-scanning/alerts \
+            --jq --arg commit "$COMMIT_SHA" '
+            map(select(.state == "open" and .most_recent_instance.commit_sha == $commit))' 2>/dev/null) || echo "[]"
+          
+          # Strategy 2: If no alerts found, try getting alerts for the specific ref
+          if [ "$(echo "$ALERTS_JSON" | jq 'length')" -eq 0 ]; then
+            echo "🔍 Strategy 2: Fetching alerts for specific ref..."
+            ALERTS_JSON=$(gh api repos/${{ github.repository }}/code-scanning/alerts \
+              --jq --arg ref_name "$REF_NAME" '
+              map(select(.state == "open" and .most_recent_instance.ref == $ref_name))' 2>/dev/null) || echo "[]"
+          fi
+          
+          # Strategy 3: If still no alerts, get all open alerts (fallback)
+          if [ "$(echo "$ALERTS_JSON" | jq 'length')" -eq 0 ]; then
+            echo "🔍 Strategy 3: Fetching all open alerts as fallback..."
+            ALERTS_JSON=$(gh api repos/${{ github.repository }}/code-scanning/alerts \
+              --jq 'map(select(.state == "open"))' 2>/dev/null) || echo "[]"
+          fi
+          
+          # Process the alerts data
+          if [ "$(echo "$ALERTS_JSON" | jq 'length')" -gt 0 ]; then
+            echo "✅ Found $(echo "$ALERTS_JSON" | jq 'length') CodeQL alerts"
+            ALERTS_DATA=$(echo "$ALERTS_JSON" | jq --arg ref "$REF_NAME" --arg commit "$COMMIT_SHA" --arg pr "$PR_NUMBER" '{
               scan_timestamp: now | strftime("%Y-%m-%dT%H:%M:%SZ"),
               commit_sha: $commit,
               ref: $ref,
+              pr_number: (if $pr == "null" then null else ($pr | tonumber) end),
               total_alerts: length,
               severity_counts: {
                 critical: map(select(.rule.security_severity_level == "critical")) | length,
@@ -118,24 +146,26 @@ jobs:
                 analysis_key: ".github/workflows/unified-build-attest.yml:build-scan-attest",
                 category: "/language:python"
               }
-            }' 2>/dev/null) || {
-              echo "⚠️  Failed to fetch alerts from API, creating fallback summary..."
-              ALERTS_DATA='{
-                "scan_timestamp": "'$(date -u +%Y-%m-%dT%H:%M:%SZ)'",
-                "commit_sha": "'"$COMMIT_SHA"'",
-                "ref": "'"$REF_NAME"'",
-                "total_alerts": 0,
-                "severity_counts": {"critical": 0, "high": 0, "medium": 0, "low": 0, "note": 0, "warning": 0},
-                "rule_summary": [],
-                "tools_used": ["codeql"],
-                "languages_scanned": ["python"],
-                "note": "CodeQL scan completed but alerts not available via API at attestation time",
-                "scan_context": {
-                  "analysis_key": ".github/workflows/unified-build-attest.yml:build-scan-attest",
-                  "category": "/language:python"
-                }
-              }'
-            }
+            }')
+          else
+            echo "⚠️  No CodeQL alerts found, creating empty summary..."
+            ALERTS_DATA=$(jq -n --arg ref "$REF_NAME" --arg commit "$COMMIT_SHA" --arg pr "$PR_NUMBER" '{
+              scan_timestamp: now | strftime("%Y-%m-%dT%H:%M:%SZ"),
+              commit_sha: $commit,
+              ref: $ref,
+              pr_number: (if $pr == "null" then null else ($pr | tonumber) end),
+              total_alerts: 0,
+              severity_counts: {critical: 0, high: 0, medium: 0, low: 0, note: 0, warning: 0},
+              rule_summary: [],
+              tools_used: ["codeql"],
+              languages_scanned: ["python"],
+              note: "CodeQL scan completed but no alerts found or alerts not available via API at attestation time",
+              scan_context: {
+                analysis_key: ".github/workflows/unified-build-attest.yml:build-scan-attest",
+                category: "/language:python"
+              }
+            }')
+          fi
           
           echo "security_summary<<EOF" >> $GITHUB_OUTPUT
           echo "$ALERTS_DATA" >> $GITHUB_OUTPUT
