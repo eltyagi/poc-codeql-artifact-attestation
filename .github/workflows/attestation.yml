@@ -212,7 +212,7 @@ jobs:
             return all_results
 
         def get_github_alerts():
-            """Fetch CodeQL alerts from GitHub API with proper error handling."""
+            """Fetch CodeQL alerts from GitHub API with graceful fallback."""
             headers = {
                 'Authorization': f"Bearer {os.environ.get('GITHUB_TOKEN')}",
                 'Accept': 'application/vnd.github.v3+json',
@@ -221,7 +221,7 @@ jobs:
             
             repo = os.environ.get('GITHUB_REPOSITORY')
             if not repo:
-                return {'error': 'GITHUB_REPOSITORY not set'}
+                return {'status': 'unavailable', 'reason': 'GITHUB_REPOSITORY not set'}
                 
             url = f"https://api.github.com/repos/{repo}/code-scanning/alerts"
             
@@ -231,20 +231,21 @@ jobs:
                 if response.status_code == 200:
                     alerts = response.json()
                     return {
+                        'status': 'success',
                         'total': len(alerts),
                         'open': len([a for a in alerts if a.get('state') == 'open']),
                         'dismissed': len([a for a in alerts if a.get('state') == 'dismissed']),
                         'fixed': len([a for a in alerts if a.get('state') == 'fixed'])
                     }
                 elif response.status_code == 404:
-                    return {'message': 'Code scanning not enabled or no alerts found'}
+                    return {'status': 'unavailable', 'reason': 'Code scanning not enabled or no alerts found'}
                 elif response.status_code == 403:
-                    return {'error': 'Insufficient permissions to access code scanning alerts'}
+                    return {'status': 'permission_denied', 'reason': 'Insufficient permissions to access code scanning alerts', 'note': 'SARIF data available instead'}
                 else:
-                    return {'error': f'GitHub API error: {response.status_code} - {response.text}'}
+                    return {'status': 'api_error', 'reason': f'HTTP {response.status_code}'}
                     
             except requests.RequestException as e:
-                return {'error': f'Request failed: {str(e)}'}
+                return {'status': 'network_error', 'reason': 'GitHub API request failed', 'note': 'Using SARIF data only'}
 
         # Parse SARIF results
         print("Parsing SARIF results...")
@@ -255,6 +256,13 @@ jobs:
         print("Fetching GitHub alerts...")
         alerts_summary = get_github_alerts()
         print(f"Alerts summary: {alerts_summary}")
+        
+        # Enhance alerts summary with SARIF context
+        if alerts_summary.get('status') != 'success':
+            alerts_summary['sarif_fallback'] = {
+                'sarif_findings': len(sarif_results),
+                'note': 'GitHub API unavailable - using SARIF data for security findings'
+            }
         
         # Build the custom predicate
         predicate = {
