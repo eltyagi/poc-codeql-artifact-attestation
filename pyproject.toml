@@ -1,0 +1,92 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "poc-codeql-artifact-attestation"
+version = "1.0.0"
+description = "Proof of Concept: CodeQL Artifact Attestation with Intentional Vulnerabilities"
+readme = "README.md"
+license = {text = "MIT"}
+authors = [
+    {name = "Security Team", email = "security@example.com"}
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Topic :: Security",
+    "Topic :: Software Development :: Testing"
+]
+requires-python = ">=3.9"
+dependencies = [
+    "flask==1.0.2",
+    "jinja2==2.10",
+    "pyyaml==3.13",
+    "requests==2.18.4",
+    "pillow==5.0.0",
+    "lxml==4.2.0",
+    "cryptography",
+    "sqlalchemy"
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "bandit",
+    "safety",
+    "black",
+    "flake8"
+]
+attestation = [
+    "requests>=2.25.0",
+    "cryptography>=3.0.0"
+]
+
+[project.urls]
+Homepage = "https://github.com/eltyagi/poc-codeql-artifact-attestation"
+Repository = "https://github.com/eltyagi/poc-codeql-artifact-attestation"
+Issues = "https://github.com/eltyagi/poc-codeql-artifact-attestation/issues"
+
+[project.scripts]
+vulnerable-app = "app:main"
+demo-exploits = "main:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["*"]
+exclude = ["tests*", "scripts*", ".github*"]
+
+[tool.setuptools.package-data]
+"*" = ["*.json", "*.ini", "*.md"]
+
+[tool.bandit]
+exclude_dirs = ["tests", "venv"]
+skips = ["B101", "B601"]  # Skip assert_used and shell_injection for demo purposes
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_functions = ["test_*"]
+
+[tool.black]
+line-length = 88
+target-version = ['py39']
+include = '\.pyi?$'
+extend-exclude = '''
+/(
+  # directories
+  \.eggs
+  | \.git
+  | \.hg
+  | \.mypy_cache
+  | \.tox
+  | \.venv
+  | build
+  | dist
+)/
+'''

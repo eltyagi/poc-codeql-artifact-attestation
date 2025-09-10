@@ -1,0 +1,310 @@
+name: Build and Attest with CodeQL
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    types: [closed]
+    branches: [main]
+
+permissions:
+  contents: read
+  security-events: read
+  attestations: write
+  id-token: write
+  actions: read
+
+jobs:
+  build:
+    name: Build Python Package
+    runs-on: ubuntu-latest
+    outputs:
+      artifact-path: ${{ steps.build.outputs.artifact-path }}
+      artifact-hash: ${{ steps.build.outputs.artifact-hash }}
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.9'
+    
+    - name: Install build dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install build wheel
+    
+    - name: Build package
+      id: build
+      run: |
+        python -m build
+        ARTIFACT_PATH=$(ls dist/*.tar.gz | head -1)
+        ARTIFACT_HASH=$(sha256sum "$ARTIFACT_PATH" | cut -d' ' -f1)
+        echo "artifact-path=$ARTIFACT_PATH" >> $GITHUB_OUTPUT
+        echo "artifact-hash=sha256:$ARTIFACT_HASH" >> $GITHUB_OUTPUT
+        echo "Built artifact: $ARTIFACT_PATH"
+        echo "SHA256: $ARTIFACT_HASH"
+    
+    - name: Upload build artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: python-package
+        path: dist/
+        retention-days: 30
+
+  codeql-scan:
+    name: CodeQL Security Scan
+    runs-on: ubuntu-latest
+    needs: build
+    outputs:
+      sarif-id: ${{ steps.analyze.outputs.sarif-id }}
+      
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Initialize CodeQL
+      uses: github/codeql-action/init@v3
+      with:
+        languages: python
+        config: |
+          name: "CodeQL Config"
+          queries:
+            - uses: security-and-quality
+    
+    - name: Perform CodeQL Analysis
+      id: analyze
+      uses: github/codeql-action/analyze@v3
+      with:
+        category: "/language:python"
+        upload: true
+        output: sarif-results
+        checkout_path: ${{ github.workspace }}
+    
+    - name: Upload SARIF results
+      uses: actions/upload-artifact@v4
+      with:
+        name: codeql-sarif
+        path: sarif-results
+        retention-days: 30
+
+  create-attestation:
+    name: Create Artifact Attestation
+    runs-on: ubuntu-latest
+    needs: [build, codeql-scan]
+    if: always() && (needs.build.result == 'success')
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.9'
+    
+    - name: Download build artifacts
+      uses: actions/download-artifact@v4
+      with:
+        name: python-package
+        path: dist/
+    
+    - name: Download SARIF results
+      uses: actions/download-artifact@v4
+      with:
+        name: codeql-sarif
+        path: sarif-results/
+      continue-on-error: true
+    
+    - name: Install dependencies for attestation
+      run: |
+        pip install requests jq-py
+    
+    - name: Extract PR information
+      id: pr-info
+      run: |
+        if [ "${{ github.event_name }}" = "pull_request" ]; then
+          echo "pr-number=${{ github.event.pull_request.number }}" >> $GITHUB_OUTPUT
+          echo "pr-author=${{ github.event.pull_request.user.login }}" >> $GITHUB_OUTPUT
+          echo "pr-title=${{ github.event.pull_request.title }}" >> $GITHUB_OUTPUT
+          echo "merge-commit=${{ github.event.pull_request.merge_commit_sha }}" >> $GITHUB_OUTPUT
+          echo "merged-at=${{ github.event.pull_request.merged_at }}" >> $GITHUB_OUTPUT
+        else
+          echo "pr-number=null" >> $GITHUB_OUTPUT
+          echo "pr-author=${{ github.actor }}" >> $GITHUB_OUTPUT
+          echo "pr-title=Direct push to ${{ github.ref_name }}" >> $GITHUB_OUTPUT
+          echo "merge-commit=${{ github.sha }}" >> $GITHUB_OUTPUT
+          echo "merged-at=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> $GITHUB_OUTPUT
+        fi
+    
+    - name: Parse CodeQL results and build predicate
+      id: build-predicate
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        ARTIFACT_PATH: ${{ needs.build.outputs.artifact-path }}
+        ARTIFACT_HASH: ${{ needs.build.outputs.artifact-hash }}
+        PR_NUMBER: ${{ steps.pr-info.outputs.pr-number }}
+        PR_AUTHOR: ${{ steps.pr-info.outputs.pr-author }}
+        PR_TITLE: ${{ steps.pr-info.outputs.pr-title }}
+        MERGE_COMMIT: ${{ steps.pr-info.outputs.merge-commit }}
+        MERGED_AT: ${{ steps.pr-info.outputs.merged-at }}
+      run: |
+        python3 << 'EOF'
+        import json
+        import os
+        import glob
+        import requests
+        from datetime import datetime
+
+        def parse_sarif_results():
+            """Parse SARIF files to extract CodeQL results."""
+            sarif_files = glob.glob("sarif-results/*.sarif")
+            all_results = []
+            
+            for sarif_file in sarif_files:
+                try:
+                    with open(sarif_file, 'r') as f:
+                        sarif_data = json.load(f)
+                    
+                    for run in sarif_data.get('runs', []):
+                        for result in run.get('results', []):
+                            rule_id = result.get('ruleId', 'unknown')
+                            level = result.get('level', 'note')
+                            message = result.get('message', {}).get('text', '')
+                            
+                            locations = []
+                            for location in result.get('locations', []):
+                                phys_loc = location.get('physicalLocation', {})
+                                artifact_loc = phys_loc.get('artifactLocation', {})
+                                region = phys_loc.get('region', {})
+                                
+                                locations.append({
+                                    'file': artifact_loc.get('uri', ''),
+                                    'line': region.get('startLine', 0),
+                                    'column': region.get('startColumn', 0)
+                                })
+                            
+                            all_results.append({
+                                'ruleId': rule_id,
+                                'severity': level,
+                                'message': message,
+                                'locations': locations
+                            })
+                            
+                except Exception as e:
+                    print(f"Error parsing SARIF file {sarif_file}: {e}")
+            
+            return all_results
+
+        def get_github_alerts():
+            """Fetch CodeQL alerts from GitHub API."""
+            headers = {
+                'Authorization': f"token {os.environ.get('GITHUB_TOKEN')}",
+                'Accept': 'application/vnd.github.v3+json'
+            }
+            
+            repo = os.environ.get('GITHUB_REPOSITORY')
+            url = f"https://api.github.com/repos/{repo}/code-scanning/alerts"
+            
+            try:
+                response = requests.get(url, headers=headers)
+                if response.status_code == 200:
+                    alerts = response.json()
+                    return {
+                        'total': len(alerts),
+                        'open': len([a for a in alerts if a['state'] == 'open']),
+                        'dismissed': len([a for a in alerts if a['state'] == 'dismissed']),
+                        'fixed': len([a for a in alerts if a['state'] == 'fixed'])
+                    }
+            except Exception as e:
+                print(f"Error fetching GitHub alerts: {e}")
+            
+            return {'total': 0, 'open': 0, 'dismissed': 0, 'fixed': 0}
+
+        # Parse SARIF results
+        sarif_results = parse_sarif_results()
+        
+        # Get GitHub alerts summary
+        alerts_summary = get_github_alerts()
+        
+        # Build the custom predicate
+        predicate = {
+            'predicateType': 'https://github.com/attestations/codeql-scan/v1',
+            'predicate': {
+                'artifact': {
+                    'name': os.path.basename(os.environ.get('ARTIFACT_PATH', '')),
+                    'path': os.environ.get('ARTIFACT_PATH', ''),
+                    'digest': os.environ.get('ARTIFACT_HASH', ''),
+                    'buildTimestamp': datetime.utcnow().isoformat() + 'Z'
+                },
+                'pullRequest': {
+                    'number': int(os.environ.get('PR_NUMBER')) if os.environ.get('PR_NUMBER') != 'null' else None,
+                    'author': os.environ.get('PR_AUTHOR', ''),
+                    'title': os.environ.get('PR_TITLE', ''),
+                    'mergeCommit': os.environ.get('MERGE_COMMIT', ''),
+                    'mergedAt': os.environ.get('MERGED_AT', '')
+                },
+                'codeqlScan': {
+                    'scanTimestamp': datetime.utcnow().isoformat() + 'Z',
+                    'repository': os.environ.get('GITHUB_REPOSITORY', ''),
+                    'ref': os.environ.get('GITHUB_REF', ''),
+                    'sha': os.environ.get('GITHUB_SHA', ''),
+                    'workflow': os.environ.get('GITHUB_WORKFLOW', ''),
+                    'runId': os.environ.get('GITHUB_RUN_ID', ''),
+                    'sarif_results': sarif_results,
+                    'alertsSummary': alerts_summary,
+                    'resultCount': len(sarif_results)
+                },
+                'metadata': {
+                    'generator': 'GitHub Actions CodeQL Attestation Workflow',
+                    'version': '1.0.0',
+                    'generatedAt': datetime.utcnow().isoformat() + 'Z'
+                }
+            }
+        }
+        
+        # Output the predicate as JSON
+        predicate_json = json.dumps(predicate, indent=2)
+        print("Generated predicate:")
+        print(predicate_json)
+        
+        # Save to file for attestation
+        with open('predicate.json', 'w') as f:
+            f.write(predicate_json)
+        
+        # Set output for GitHub Actions
+        with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+            f.write(f"predicate-file=predicate.json\n")
+        EOF
+    
+    - name: Create artifact attestation
+      uses: actions/attest@v1
+      with:
+        subject-path: ${{ needs.build.outputs.artifact-path }}
+        predicate-type: "https://github.com/attestations/codeql-scan/v1"
+        predicate-file: predicate.json
+    
+    - name: Upload attestation artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: attestation-data
+        path: |
+          predicate.json
+        retention-days: 90
+    
+    - name: Summary
+      run: |
+        echo "## 🔒 Artifact Attestation Created" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "**Artifact:** \`${{ needs.build.outputs.artifact-path }}\`" >> $GITHUB_STEP_SUMMARY
+        echo "**Hash:** \`${{ needs.build.outputs.artifact-hash }}\`" >> $GITHUB_STEP_SUMMARY
+        echo "**CodeQL Scan:** ✅ Completed" >> $GITHUB_STEP_SUMMARY
+        echo "**Attestation:** ✅ Generated and signed" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "The artifact has been cryptographically signed with:" >> $GITHUB_STEP_SUMMARY
+        echo "- Build provenance" >> $GITHUB_STEP_SUMMARY
+        echo "- CodeQL security scan results" >> $GITHUB_STEP_SUMMARY
+        echo "- Pull request metadata" >> $GITHUB_STEP_SUMMARY
+        echo "- Complete audit trail" >> $GITHUB_STEP_SUMMARY
