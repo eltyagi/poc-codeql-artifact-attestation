@@ -11,7 +11,7 @@ import requests
 import hashlib
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional
 
 
 class AttestationPredicateBuilder:
