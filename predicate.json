@@ -1,0 +1,253 @@
+{
+  "predicateType": "https://github.com/attestations/codeql-scan/v1",
+  "predicate": {
+    "artifact": {
+      "name": "poc_codeql_artifact_attestation-1.0.0.tar.gz",
+      "path": "dist/poc_codeql_artifact_attestation-1.0.0.tar.gz",
+      "digest": "sha256:0e98fbb6bfd56d0cefbb152ae3ead8294f383ef37ef4e26447ae04d5e5e79b63",
+      "buildTimestamp": "2025-09-10T05:36:09.493594Z"
+    },
+    "pullRequest": {
+      "number": 7,
+      "author": "eltyagi",
+      "title": "Develop",
+      "mergeCommit": "568326629ce2b9928d47aeacf80e979ac2c27cd6",
+      "mergedAt": "2025-09-10T05:34:28Z"
+    },
+    "codeqlScan": {
+      "scanTimestamp": "2025-09-10T05:36:09.493613Z",
+      "repository": "eltyagi/poc-codeql-artifact-attestation",
+      "ref": "refs/heads/main",
+      "sha": "568326629ce2b9928d47aeacf80e979ac2c27cd6",
+      "workflow": "Build and Attest with CodeQL",
+      "runId": "17604264064",
+      "sarif_results": [
+        {
+          "ruleId": "py/flask-debug",
+          "severity": "note",
+          "message": "A Flask app appears to be run in debug mode. This may allow an attacker to run arbitrary code through the debugger.",
+          "locations": [
+            {
+              "file": "app.py",
+              "line": 128,
+              "column": 5
+            }
+          ]
+        },
+        {
+          "ruleId": "py/request-without-cert-validation",
+          "severity": "note",
+          "message": "This request may run without certificate validation because [it is disabled](1).",
+          "locations": [
+            {
+              "file": "auth_service.py",
+              "line": 67,
+              "column": 20
+            }
+          ]
+        },
+        {
+          "ruleId": "py/overly-permissive-file",
+          "severity": "note",
+          "message": "Overly permissive mask in chmod sets file to world readable.",
+          "locations": [
+            {
+              "file": "auth_service.py",
+              "line": 114,
+              "column": 9
+            }
+          ]
+        },
+        {
+          "ruleId": "py/overly-permissive-file",
+          "severity": "note",
+          "message": "Overly permissive mask in chmod sets file to world writable.",
+          "locations": [
+            {
+              "file": "file_handler.py",
+              "line": 53,
+              "column": 9
+            }
+          ]
+        },
+        {
+          "ruleId": "py/overly-permissive-file",
+          "severity": "note",
+          "message": "Overly permissive mask in chmod sets file to world readable.",
+          "locations": [
+            {
+              "file": "file_handler.py",
+              "line": 81,
+              "column": 9
+            }
+          ]
+        },
+        {
+          "ruleId": "py/overly-permissive-file",
+          "severity": "note",
+          "message": "Overly permissive mask in chmod sets file to world writable.",
+          "locations": [
+            {
+              "file": "file_handler.py",
+              "line": 185,
+              "column": 9
+            }
+          ]
+        },
+        {
+          "ruleId": "py/file-not-closed",
+          "severity": "note",
+          "message": "File may not be closed if an exception is raised.",
+          "locations": [
+            {
+              "file": "file_handler.py",
+              "line": 113,
+              "column": 18
+            }
+          ]
+        },
+        {
+          "ruleId": "py/file-not-closed",
+          "severity": "note",
+          "message": "File may not be closed if an exception is raised.",
+          "locations": [
+            {
+              "file": "file_handler.py",
+              "line": 117,
+              "column": 18
+            }
+          ]
+        },
+        {
+          "ruleId": "py/catch-base-exception",
+          "severity": "note",
+          "message": "Except block directly handles BaseException.",
+          "locations": [
+            {
+              "file": "auth_service.py",
+              "line": 56,
+              "column": 9
+            }
+          ]
+        },
+        {
+          "ruleId": "py/unused-import",
+          "severity": "note",
+          "message": "Import of 'session' is not used.",
+          "locations": [
+            {
+              "file": "app.py",
+              "line": 13,
+              "column": 0
+            }
+          ]
+        },
+        {
+          "ruleId": "py/unused-import",
+          "severity": "note",
+          "message": "Import of 'os' is not used.",
+          "locations": [
+            {
+              "file": "database.py",
+              "line": 8,
+              "column": 0
+            }
+          ]
+        },
+        {
+          "ruleId": "py/unused-import",
+          "severity": "note",
+          "message": "Import of 'tempfile' is not used.",
+          "locations": [
+            {
+              "file": "file_handler.py",
+              "line": 12,
+              "column": 0
+            }
+          ]
+        },
+        {
+          "ruleId": "py/unused-import",
+          "severity": "note",
+          "message": "Import of 'Path' is not used.",
+          "locations": [
+            {
+              "file": "file_handler.py",
+              "line": 13,
+              "column": 0
+            }
+          ]
+        },
+        {
+          "ruleId": "py/unused-import",
+          "severity": "note",
+          "message": "Import of 'VulnerableAPI' is not used.",
+          "locations": [
+            {
+              "file": "main.py",
+              "line": 16,
+              "column": 0
+            }
+          ]
+        },
+        {
+          "ruleId": "py/unused-global-variable",
+          "severity": "note",
+          "message": "The global variable 'db' is not used.",
+          "locations": [
+            {
+              "file": "database.py",
+              "line": 218,
+              "column": 5
+            }
+          ]
+        },
+        {
+          "ruleId": "py/unused-global-variable",
+          "severity": "note",
+          "message": "The global variable 'net' is not used.",
+          "locations": [
+            {
+              "file": "networking.py",
+              "line": 166,
+              "column": 5
+            }
+          ]
+        },
+        {
+          "ruleId": "py/unused-local-variable",
+          "severity": "note",
+          "message": "Variable handler is not used.",
+          "locations": [
+            {
+              "file": "file_handler.py",
+              "line": 175,
+              "column": 9
+            }
+          ]
+        },
+        {
+          "ruleId": "py/unused-local-variable",
+          "severity": "note",
+          "message": "Variable net is not used.",
+          "locations": [
+            {
+              "file": "main.py",
+              "line": 60,
+              "column": 5
+            }
+          ]
+        }
+      ],
+      "alertsSummary": {
+        "error": "Insufficient permissions to access code scanning alerts"
+      },
+      "resultCount": 18
+    },
+    "metadata": {
+      "generator": "GitHub Actions CodeQL Attestation Workflow",
+      "version": "1.0.0",
+      "generatedAt": "2025-09-10T05:36:09.493621Z"
+    }
+  }
+}

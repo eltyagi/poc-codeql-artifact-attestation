@@ -1,165 +1,294 @@
-# Vulnerable Python Project
+# CodeQL Artifact Attestation - Proof of Concept
 
-⚠️ **WARNING: This project contains intentional security vulnerabilities!**
+🔐 **Supply Chain Security with CodeQL Integration**
 
-This project is designed for educational purposes.
-## Project Structure
+This repository demonstrates a complete **GitHub Actions workflow** that creates **cryptographically signed artifact attestations** enriched with **CodeQL security scan results**. It provides a tamper-evident audit trail linking software artifacts to their source code, build process, and security analysis.
+
+⚠️ **Note: This project contains intentional security vulnerabilities for testing and educational purposes!**
+
+## 🚀 What This Does
+
+Creates **artifact attestations** that include:
+- ✅ **Build Provenance** - Who built it, when, and how
+- ✅ **CodeQL Scan Results** - Security vulnerabilities found
+- ✅ **Pull Request Context** - Which PR introduced changes
+- ✅ **Complete Audit Trail** - Immutable record of the entire process
+
+## 🔄 Workflow Overview
+
+The workflow (`.github/workflows/attestation.yml`) runs automatically on:
+- Push to `main` or `develop` branches
+- Pull request merges to `main`
+
+### Three-Stage Process:
+
+```
+┌─────────────┐    ┌──────────────┐    ┌─────────────────┐
+│   Build     │───▶│  CodeQL      │───▶│   Attestation   │
+│   Package   │    │  Scan        │    │   Creation      │
+└─────────────┘    └──────────────┘    └─────────────────┘
+```
+
+### 1. **Build Stage** 🔨
+- Builds Python package from source
+- Generates cryptographic hash (SHA256)
+- Uploads artifacts for later stages
+
+### 2. **CodeQL Security Scan** 🔍
+- Runs CodeQL analysis with `security-and-quality` queries
+- Generates SARIF results with vulnerability details
+- Uploads results to GitHub Security tab
+- Saves scan data for attestation
+
+### 3. **Attestation Creation** 📋
+- Combines build info + CodeQL results + PR metadata
+- Creates custom attestation predicate
+- Generates cryptographically signed attestation
+- Links everything together immutably
+
+## 📊 Attestation Schema
+
+The custom attestation includes:
+
+```json
+{
+  "predicateType": "https://github.com/attestations/codeql-scan/v1",
+  "predicate": {
+    "artifact": {
+      "name": "poc_codeql_artifact_attestation-1.0.0.tar.gz",
+      "digest": "sha256:abc123...",
+      "buildTimestamp": "2025-09-10T14:30:00Z"
+    },
+    "pullRequest": {
+      "number": 42,
+      "author": "developer",
+      "mergeCommit": "def456...",
+      "mergedAt": "2025-09-10T14:35:00Z"
+    },
+    "codeqlScan": {
+      "resultCount": 15,
+      "sarif_results": [...],
+      "alertsSummary": {
+        "total": 20,
+        "open": 5,
+        "fixed": 3,
+        "by_severity": {"high": 2, "medium": 8, "low": 5}
+      }
+    }
+  }
+}
+```
+
+## 🛠️ Setup & Usage
+
+### Prerequisites
+- GitHub repository with CodeQL enabled
+- Python project with `pyproject.toml`
+- Required workflow permissions (automatically configured)
+
+### Quick Start
+1. **Copy the workflow** from `.github/workflows/attestation.yml` to your repository
+2. **Ensure CodeQL is enabled** in repository settings → Security → Code scanning
+3. **Create a PR or push** to `main`/`develop` to trigger the workflow
+4. **View results** in the Actions tab and Security tab
+
+### Verifying Attestations
+Use GitHub CLI to verify attestations:
+```bash
+gh attestation verify artifact.tar.gz --repo owner/repository
+```
+
+## 📁 Project Structure
 
 ```
 poc-codeql-artifact-attestation/
-├── venv/                   # Virtual environment
-├── app.py                  # Flask web application with vulnerabilities
-├── utils.py                # Utility functions with security issues
-├── database.py             # SQL injection vulnerabilities
-├── networking.py           # SSRF and network vulnerabilities
-├── config.py              # Configuration vulnerabilities
-├── main.py                # Demonstration script
-├── requirements.txt       # Vulnerable dependencies
-├── exploit_examples.json  # Example attack payloads
-├── SECURITY_CHECKLIST.md  # Remediation guide
-└── README.md              # This file
+├── .github/workflows/
+│   └── attestation.yml          # Main CodeQL attestation workflow
+├── scripts/
+│   ├── parse_sarif.py           # SARIF parser utility
+│   └── build_predicate.py       # Attestation predicate builder
+├── app.py                       # Flask app with vulnerabilities
+├── database.py                  # SQL injection examples
+├── networking.py                # SSRF vulnerabilities
+├── main.py                      # Demo script
+├── pyproject.toml              # Package configuration
+├── requirements.txt            # Vulnerable dependencies
+└── WORKFLOW_GUIDE.md           # Detailed workflow documentation
 ```
 
-## Setup Instructions
+## 🔐 Security Benefits
 
-1. **Activate the virtual environment:**
-   ```bash
-   source venv/bin/activate
-   ```
+✅ **Supply Chain Security** - Links artifacts to exact source and scan results  
+✅ **Audit Trail** - Complete record of what was scanned and when  
+✅ **Compliance** - Meets software supply chain security requirements  
+✅ **Transparency** - All security findings embedded in attestation  
+✅ **Tamper Evidence** - Cryptographic signatures prevent modification  
+✅ **Automated** - No manual intervention required
+## 🧪 Educational Vulnerability Testing
 
-2. **Install vulnerable dependencies:**
-   ```bash
-   pip install -r requirements.txt
-   ```
+This repository contains **intentional security vulnerabilities** perfect for testing the CodeQL workflow:
 
-3. **Run the demonstration:**
-   ```bash
-   python main.py
-   ```
+### Vulnerability Categories Included
 
-4. **Run the vulnerable web app:**
-   ```bash
-   python app.py
-   ```
-
-## Vulnerabilities Included
-
-### 1. Injection Vulnerabilities
+### 1. **Injection Vulnerabilities**
 - **SQL Injection**: Multiple functions in `database.py`
 - **Command Injection**: `app.py` ping endpoint
 - **Code Injection**: `eval()` and `exec()` usage in `utils.py`
 - **LDAP Injection**: Simulated in `app.py`
 
-### 2. Cross-Site Scripting (XSS)
+### 2. **Cross-Site Scripting (XSS)**
 - **Reflected XSS**: Search endpoint in `app.py`
 - **Template Injection**: Direct template rendering
 
-### 3. Security Misconfiguration
+### 3. **Security Misconfiguration**
 - **Debug Mode**: Enabled in production
 - **Hardcoded Secrets**: Throughout codebase
 - **Insecure Dependencies**: Old versions with known CVEs
 
-### 4. Broken Authentication
+### 4. **Broken Authentication**
 - **Weak Passwords**: MD5 hashing
 - **Predictable Tokens**: Fixed seed random generation
 - **Session Fixation**: No proper session management
 
-### 5. Sensitive Data Exposure
+### 5. **Sensitive Data Exposure**
 - **Information Disclosure**: Debug endpoints
 - **Logging Sensitive Data**: Passwords in logs
 - **Configuration Exposure**: Secrets in config files
 
-### 6. Broken Access Control
+### 6. **Broken Access Control**
 - **Path Traversal**: File reading without validation
 - **Insecure Direct Object References**: User ID enumeration
 - **Open Redirect**: Unvalidated redirects
 
-### 7. Server-Side Request Forgery (SSRF)
+### 7. **Server-Side Request Forgery (SSRF)**
 - **Internal Network Access**: Unvalidated URL requests
 - **Protocol Smuggling**: Support for various protocols
 
-### 8. Insecure Deserialization
+### 8. **Insecure Deserialization**
 - **Pickle Deserialization**: Unsafe pickle.loads()
 - **YAML Unsafe Load**: yaml.load() without safe loader
 
-### 9. Using Components with Known Vulnerabilities
+### 9. **Using Components with Known Vulnerabilities**
 - **Outdated Dependencies**: Specific old versions with CVEs
 - **Vulnerable Libraries**: Flask 1.0.2, PyYAML 3.13, etc.
 
-### 10. Insufficient Logging & Monitoring
+### 10. **Insufficient Logging & Monitoring**
 - **Sensitive Data in Logs**: Passwords and tokens logged
 - **No Security Event Monitoring**: Missing security alerts
 
-## Example Exploits
+## 🎯 Testing the Workflow
 
-### SQL Injection
+### Running the Vulnerable Application
+1. **Set up environment:**
+   ```bash
+   python -m pip install -r requirements.txt
+   ```
+
+2. **Run the vulnerable web app:**
+   ```bash
+   python app.py
+   ```
+
+3. **Run demo exploits:**
+   ```bash
+   python main.py
+   ```
+
+### Example Security Issues CodeQL Will Detect
+
+**SQL Injection:**
 ```python
-# Authentication bypass
-username = "admin' OR '1'='1"
-password = "anything"
-
-# Data extraction
-search_term = "' UNION SELECT credit_card, role FROM users --"
+# In database.py - CodeQL will flag this
+cursor.execute(f"SELECT * FROM users WHERE username = '{username}'")
 ```
 
-### XSS
-```javascript
-// Reflected XSS in search
-http://localhost:5000/search?q=<script>alert('XSS')</script>
+**Command Injection:**
+```python
+# In app.py - CodeQL will detect this
+os.system(f"ping -c 1 {host}")
 ```
 
-### Command Injection
-```bash
-# Ping endpoint
-http://localhost:5000/ping?host=localhost; cat /etc/passwd
+**XSS Vulnerability:**
+```python
+# In app.py - CodeQL will identify this
+return f"<h1>Search results for: {query}</h1>"
 ```
 
-### Path Traversal
-```bash
-# File read endpoint
-http://localhost:5000/file?filename=../../../etc/passwd
+### Workflow Testing Process
+1. **Make changes** to the vulnerable code
+2. **Create a pull request** 
+3. **Watch the workflow** run CodeQL analysis
+4. **Review the attestation** with embedded security findings
+5. **See results** in GitHub Security tab
+
+## 🔧 Development & Testing Tools
+
+This project works great with:
+- **CodeQL** - Static analysis (primary focus)
+- **Bandit** - Python security linter  
+- **Safety** - Dependency vulnerability scanner
+- **OWASP ZAP** - Web application scanner
+- **Burp Suite** - Manual security testing
+
+## ⚖️ Legal Disclaimer
+
+⚠️ **EDUCATIONAL USE ONLY**: This code contains intentional vulnerabilities and should never be deployed in production. Users are responsible for ensuring proper authorization before testing vulnerabilities.
+
+## 📈 Workflow Outputs
+
+When the workflow completes successfully, you'll see:
+
+### 1. **GitHub Security Tab**
+- CodeQL scan results with detailed findings
+- Alert timeline and status tracking
+- SARIF file uploads with vulnerability details
+
+### 2. **Actions Artifacts**
+- `python-package` - Built software artifact
+- `codeql-sarif` - Raw SARIF scan results
+- `attestation-data` - Custom CodeQL predicate JSON
+
+### 3. **Attestations**
+- **Build Provenance** - GitHub's native attestation
+- **Custom CodeQL Data** - Embedded in workflow artifacts
+- Cryptographic signatures linking everything together
+
+### 4. **Workflow Summary**
+```
+🔒 Artifact Attestation Created
+Artifact: poc_codeql_artifact_attestation-1.0.0.tar.gz
+Hash: sha256:abc123...
+CodeQL Scan: ✅ Completed  
+Build Provenance: ✅ Generated and signed
+Custom CodeQL Data: ✅ Saved to artifacts
 ```
 
-## Security Testing Tools
+## 🔍 Real-World Applications
 
-This project is ideal for testing with:
-- **CodeQL**: Static analysis for security vulnerabilities
-- **Bandit**: Python security linter
-- **Safety**: Dependency vulnerability scanner
-- **OWASP ZAP**: Web application security scanner
-- **Burp Suite**: Web vulnerability scanner
+This workflow pattern is valuable for:
 
-## Educational Use Cases
+- **Enterprise Software** - Compliance and audit requirements
+- **Open Source Projects** - Transparency and trust building  
+- **CI/CD Pipelines** - Automated security verification
+- **Supply Chain Security** - SLSA compliance
+- **Regulatory Requirements** - SOX, GDPR, HIPAA compliance
+- **Security Research** - Vulnerability analysis and tracking
 
-1. **Security Training**: Demonstrate common vulnerabilities
-2. **Tool Testing**: Test security scanning tools
-3. **Penetration Testing**: Practice exploitation techniques
-4. **Code Review**: Learn to identify security issues
-5. **DevSecOps**: Integrate security into CI/CD pipelines
+## 🤝 Contributing
 
-## Remediation
+This is a proof-of-concept project. Contributions welcome for:
+- Additional vulnerability examples
+- Workflow improvements  
+- Documentation enhancements
+- Language-specific adaptations
 
-See `SECURITY_CHECKLIST.md` for detailed remediation steps for each vulnerability type.
+## 📚 Additional Resources
 
-## Legal Disclaimer
-
-This project is for educational and testing purposes only. The vulnerabilities are intentional and should never be deployed in production environments. Users are responsible for ensuring they have proper authorization before testing these vulnerabilities on any systems.
-
-## Dependencies with Known Vulnerabilities
-
-The `requirements.txt` file intentionally includes old versions of packages with known security vulnerabilities:
-
-- **Flask 1.0.2**: CVE-2018-1000656, CVE-2019-1010083
-- **Jinja2 2.10**: CVE-2019-10906
-- **PyYAML 3.13**: CVE-2017-18342, CVE-2020-1747
-- **Requests 2.18.4**: CVE-2018-18074
-- **Pillow 5.0.0**: Multiple CVEs
-- **lxml 4.2.0**: CVE-2018-19787
-
-## Contributing
-
-This project is designed for educational purposes. If you find additional vulnerability patterns that would be valuable for learning, feel free to contribute while maintaining the educational focus.
+- **Detailed Workflow Guide**: See `WORKFLOW_GUIDE.md`
+- **GitHub Attestations**: [Official Documentation](https://docs.github.com/en/actions/security-guides/using-artifact-attestations)
+- **CodeQL Documentation**: [Getting Started](https://codeql.github.com/docs/)
+- **SLSA Framework**: [Supply Chain Security](https://slsa.dev/)
 
 ---
 
-⚠️ **Remember: This code is intentionally vulnerable. Never use in production!**
+🔐 **Ready to implement supply chain security with CodeQL integration!**
